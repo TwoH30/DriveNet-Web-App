@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1A7F37">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="DriveNet">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>DriveNet</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Écran expiré -->
+  <section class="screen" data-screen="expire" hidden>
+    <div class="center-content">
+      <div class="icon-big">⏳</div>
+      <h2>Période de bêta-test terminée</h2>
+      <p>Cette version d'essai n'est plus utilisable. Contactez le développeur pour une version à jour.</p>
+    </div>
+  </section>
+
+  <!-- Onboarding -->
+  <section class="screen" data-screen="onboarding" hidden>
+    <div class="onboarding-content">
+      <div class="icon-big green">🚖</div>
+      <h2>Bienvenue sur DriveNet</h2>
+      <p>Avant de commencer, renseignez deux informations qui serviront à calculer votre bénéfice. Vous pourrez les modifier à tout moment dans les paramètres.</p>
+      <div class="field">
+        <label for="onb-conso">Consommation du véhicule (Fcfa pour 100 km)</label>
+        <input id="onb-conso" type="text" inputmode="decimal">
+        <small>Coût du carburant pour 100 km (ex. 6 500)</small>
+      </div>
+      <div class="field">
+        <label for="onb-recette">Recette hebdomadaire à verser (Fcfa)</label>
+        <input id="onb-recette" type="text" inputmode="decimal">
+        <small>Montant fixe à verser au propriétaire chaque semaine</small>
+      </div>
+      <button id="onb-btn" class="btn-primary" disabled>Commencer</button>
+      <p id="onb-error" class="error" hidden>Renseignez les deux valeurs (nombres positifs).</p>
+    </div>
+  </section>
+
+  <!-- Écran principal -->
+  <section class="screen" data-screen="main" hidden>
+    <header class="appbar">
+      <h1>DriveNet</h1>
+      <div class="appbar-actions">
+        <button id="btn-histo" class="icon-btn" title="Historique" aria-label="Historique">📋</button>
+        <button id="btn-params" class="icon-btn" title="Paramètres" aria-label="Paramètres">⚙️</button>
+      </div>
+    </header>
+    <main id="main-content" class="content"></main>
+  </section>
+
+  <!-- Écran pointage -->
+  <section class="screen" data-screen="pointage" hidden>
+    <header class="appbar">
+      <button class="icon-btn" id="btn-back-pointage" aria-label="Retour">←</button>
+      <h1 id="pointage-title">Nouveau pointage</h1>
+    </header>
+    <main id="pointage-content" class="content"></main>
+  </section>
+
+  <!-- Écran paramètres -->
+  <section class="screen" data-screen="parametres" hidden>
+    <header class="appbar">
+      <button class="icon-btn" id="btn-back-params" aria-label="Retour">←</button>
+      <h1>Paramètres</h1>
+    </header>
+    <main id="params-content" class="content"></main>
+  </section>
+
+  <!-- Écran historique -->
+  <section class="screen" data-screen="historique" hidden>
+    <header class="appbar">
+      <button class="icon-btn" id="btn-back-histo" aria-label="Retour">←</button>
+      <h1>Historique</h1>
+    </header>
+    <main id="histo-content" class="content"></main>
+  </section>
+
+  <!-- Modal de confirmation -->
+  <div id="modal" class="modal-backdrop" hidden>
+    <div class="modal">
+      <h3 id="modal-title"></h3>
+      <p id="modal-body"></p>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="btn-text">Annuler</button>
+        <button id="modal-confirm" class="btn-primary">Confirmer</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
