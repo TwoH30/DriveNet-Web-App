@@ -1,658 +1,456 @@
-// ================================================================
-// DriveNet — version web
-// Reproduction fidèle de l'application Flutter
-// ================================================================
+// ============================================================
+// DriveNet - Application web (version Flutter portée)
+// ============================================================
 
-// ---------- Constantes ----------
-const RECETTE_HEBDO_DEFAUT = 60000;
-const CONSO_F100KM_DEFAUT = 6500;
-const DATE_LIMITE_BETA = new Date(2026, 11, 31, 0, 0, 0); // 31 déc. 2026 à minuit
-const STORAGE_KEY = 'drivenet_v1';
-const NBSP = '\u00A0';
-
-// ---------- État ----------
-let state = {
-  parametres: {
-    recetteHebdo: RECETTE_HEBDO_DEFAUT,
-    consommationF100km: CONSO_F100KM_DEFAUT,
-    modeSombreAuto: true,
-    modeSombre: false,
-    onboardingFait: false,
-  },
-  semaine: { debut: null, pointages: [] },
-  historique: [],
+const DEFAUTS = {
+  recetteHebdo: 60000,
+  consommationF100km: 6500,
+  modeSombreAuto: true,
+  modeSombre: false,
+  onboardingFait: false,
 };
-let editingIndex = null;
 
-// ================================================================
-// Persistance (localStorage, équivalent de shared_preferences)
-// ================================================================
-function charger() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const p = JSON.parse(raw);
-    if (p.parametres) state.parametres = { ...state.parametres, ...p.parametres };
-    if (p.semaine) state.semaine = p.semaine;
-    if (Array.isArray(p.historique)) state.historique = p.historique;
-  } catch (e) {
-    console.error('charger:', e);
-  }
-}
-function sauver() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.error('sauver:', e);
-  }
+const LS_PARAMS  = 'drivenet_params_v1';
+const LS_SEMAINE = 'drivenet_semaine_v1';
+const LS_HISTO   = 'drivenet_historique_v1';
+
+let state = {
+  params: { ...DEFAUTS },
+  semaine: { debut: '', pointages: [] },
+  historique: [],
+  editingIndex: null,
+};
+
+// -------- Dates --------
+function lundiDeLaSemaine(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = d.getDay(); // 0 = dimanche
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
 }
 
-// ================================================================
-// Utilitaires de formatage (miroir exact de fmt, fmtPct, fmtKm, lire)
-// ================================================================
-function groupe(s) {
+function isoDay(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function parseIsoDay(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function fmtTimestamp(isoTs) {
+  const d = new Date(isoTs);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm} ${hh}:${mi}`;
+}
+
+// -------- Formatage --------
+function grouper(n) {
+  const abs = Math.abs(Math.round(n)).toString();
   let out = '';
-  for (let i = 0; i < s.length; i++) {
-    if (i > 0 && (s.length - i) % 3 === 0) out += NBSP;
-    out += s[i];
+  for (let i = 0; i < abs.length; i++) {
+    if (i > 0 && (abs.length - i) % 3 === 0) out += '\u00A0';
+    out += abs[i];
   }
   return out;
 }
-function fmt(v) {
-  const r = Math.round(v);
-  const sign = r < 0 ? '-' : '';
-  return sign + groupe(Math.abs(r).toString()) + NBSP + 'Fcfa';
-}
-function fmtPct(v) {
-  return v.toFixed(1).replace('.', ',') + NBSP + '%';
-}
-function fmtKm(v) {
-  return groupe(Math.round(v).toString()) + NBSP + 'km';
-}
-function lire(texte) {
-  if (texte == null) return 0;
-  const t = String(texte).replace(/[\s\u00A0\u202F]/g, '').replace(',', '.');
-  if (t === '') return 0;
-  const v = parseFloat(t);
-  if (!isFinite(v)) return null;
-  return v;
-}
-function lundiDeLaSemaine(d) {
-  const dd = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const day = dd.getDay() || 7; // 1 = lundi, 7 = dimanche
-  dd.setDate(dd.getDate() - (day - 1));
-  return dd;
-}
-function memeJour(a, b) {
-  if (!a || !b) return false;
-  const da = new Date(a), db = new Date(b);
-  return da.getFullYear() === db.getFullYear()
-    && da.getMonth() === db.getMonth()
-    && da.getDate() === db.getDate();
-}
-function fmtDate(d) {
-  return String(d.getDate()).padStart(2, '0') + '/'
-    + String(d.getMonth() + 1).padStart(2, '0');
-}
-function fmtHeure(d) {
-  return String(d.getHours()).padStart(2, '0') + ':'
-    + String(d.getMinutes()).padStart(2, '0');
-}
-function numVersTexte(v) {
-  if (Number.isInteger(v)) return v.toString();
-  return v.toString().replace('.', ',');
+
+function fmt(n) {
+  const r = Math.round(n);
+  return `${r < 0 ? '-' : ''}${grouper(r)}\u00A0Fcfa`;
 }
 
-// ================================================================
-// Calculs (réplique exacte de calculerBilan)
-// ================================================================
-function calculerBilan(p, s) {
-  let argent = 0, recette = 0, commission = 0, carburant = 0;
-  let carburantMis = 0, km = 0, dernierBenefice = 0;
+function fmtKm(n) {
+  return `${grouper(n)}\u00A0km`;
+}
 
-  for (const pt of s.pointages) {
-    const c = pt.km * p.consommationF100km / 100;
-    carburant += c;
+function fmtPct(n) {
+  return `${n.toFixed(1).replace('.', ',')}\u00A0%`;
+}
+
+// -------- Persistance --------
+function save() {
+  localStorage.setItem(LS_PARAMS, JSON.stringify(state.params));
+  localStorage.setItem(LS_SEMAINE, JSON.stringify(state.semaine));
+  localStorage.setItem(LS_HISTO, JSON.stringify(state.historique));
+}
+
+function load() {
+  try { const p = JSON.parse(localStorage.getItem(LS_PARAMS) || 'null'); if (p) state.params = { ...DEFAUTS, ...p }; } catch (e) {}
+  try { const s = JSON.parse(localStorage.getItem(LS_SEMAINE) || 'null'); if (s && s.debut) state.semaine = s; } catch (e) {}
+  try { const h = JSON.parse(localStorage.getItem(LS_HISTO) || '[]'); if (Array.isArray(h)) state.historique = h; } catch (e) {}
+}
+
+function ensureCurrentWeek() {
+  const isoLundi = isoDay(lundiDeLaSemaine(new Date()));
+  if (!state.semaine.debut) {
+    state.semaine = { debut: isoLundi, pointages: [] };
+    return true;
+  }
+  if (state.semaine.debut !== isoLundi) {
+    if (state.semaine.pointages.length > 0) {
+      state.historique.unshift(state.semaine);
+      if (state.historique.length > 52) state.historique = state.historique.slice(0, 52);
+    }
+    state.semaine = { debut: isoLundi, pointages: [] };
+    return true;
+  }
+  return false;
+}
+
+// -------- Calculs --------
+function carburantConsomme(pt, conso) {
+  return pt.km * conso / 100;
+}
+
+function beneficePointage(pt, conso) {
+  return pt.cash - pt.recetteVersee - carburantConsomme(pt, conso) - pt.yango;
+}
+
+function calculerBilan(params, semaine) {
+  const conso = params.consommationF100km;
+  let argent = 0, recette = 0, commission = 0, carburant = 0, carburantMis = 0, km = 0;
+  let dernierBenefice = 0;
+  for (const pt of semaine.pointages) {
     argent += pt.cash;
     recette += pt.recetteVersee;
     commission += pt.yango;
+    carburant += carburantConsomme(pt, conso);
     carburantMis += pt.carburantMis;
     km += pt.km;
-    dernierBenefice = pt.cash - pt.recetteVersee - c - pt.yango;
+    dernierBenefice = beneficePointage(pt, conso);
   }
-
   const beneficeCumule = argent - recette - carburant - commission;
-  const recetteRestante = Math.max(0, p.recetteHebdo - recette);
-  const avancement = p.recetteHebdo > 0 ? Math.min(1, recette / p.recetteHebdo) : 1;
-
+  const recetteRestante = Math.max(0, params.recetteHebdo - recette);
+  const avancement = params.recetteHebdo > 0 ? Math.min(1, recette / params.recetteHebdo) : 1;
   let autonomie = null;
-  if (s.pointages.length > 0 && carburantMis > 0 && p.consommationF100km > 0) {
-    autonomie = (carburantMis / (p.consommationF100km / 100)) - km;
+  if (semaine.pointages.length > 0 && carburantMis > 0 && conso > 0) {
+    autonomie = (carburantMis / (conso / 100)) - km;
   }
-
-  return {
-    aPointages: s.pointages.length > 0,
-    argentGenereCumule: argent,
-    recetteCumulee: recette,
-    commissionCumulee: commission,
-    carburantCumule: carburant,
-    totalKm: km,
-    beneficeDernierPointage: dernierBenefice,
-    beneficeCumule,
-    recetteRestante,
-    avancement,
-    autonomieKm: autonomie,
-    recetteCouverte: recetteRestante <= 0.001,
-  };
+  return { aPointages: semaine.pointages.length > 0, argent, recette, commission, carburant, km, dernierBenefice, beneficeCumule, recetteRestante, avancement, autonomie };
 }
 
-// ================================================================
-// Thème sombre (auto 18h–6h, ou manuel)
-// ================================================================
-function isDark() {
-  if (!state.parametres.modeSombreAuto) return state.parametres.modeSombre;
-  const h = new Date().getHours();
-  return h >= 18 || h < 6;
-}
+// -------- Thème --------
 function appliquerTheme() {
-  document.body.classList.toggle('dark', isDark());
-}
-
-// ================================================================
-// Navigation
-// ================================================================
-function goTo(screen) {
-  document.querySelectorAll('.screen').forEach(el => {
-    el.hidden = el.dataset.screen !== screen;
-  });
-  window.scrollTo(0, 0);
-}
-
-// ================================================================
-// Modal de confirmation
-// ================================================================
-function showModal(title, body, confirmLabel, danger) {
-  return new Promise(resolve => {
-    const modal = document.getElementById('modal');
-    document.getElementById('modal-title').textContent = title;
-    document.getElementById('modal-body').textContent = body;
-    const cancelBtn = document.getElementById('modal-cancel');
-    const confirmBtn = document.getElementById('modal-confirm');
-    confirmBtn.textContent = confirmLabel || 'Confirmer';
-    confirmBtn.className = 'btn-primary' + (danger ? ' btn-danger' : '');
-
-    function close(val) {
-      modal.hidden = true;
-      cancelBtn.onclick = null;
-      confirmBtn.onclick = null;
-      modal.onclick = null;
-      resolve(val);
-    }
-    cancelBtn.onclick = () => close(false);
-    confirmBtn.onclick = () => close(true);
-    modal.onclick = (e) => { if (e.target === modal) close(false); };
-    modal.hidden = false;
-  });
-}
-
-// ================================================================
-// Action sheet (menu ⋮ des pointages)
-// ================================================================
-function showActionSheet(items) {
-  return new Promise(resolve => {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop';
-    backdrop.style.alignItems = 'flex-end';
-
-    const sheet = document.createElement('div');
-    sheet.className = 'modal';
-    sheet.style.marginBottom = '16px';
-    sheet.style.padding = '8px';
-
-    items.forEach(item => {
-      const btn = document.createElement('button');
-      btn.textContent = item.label;
-      btn.style.cssText =
-        'width:100%;text-align:left;padding:14px 16px;border:none;'
-        + 'background:none;cursor:pointer;border-radius:8px;font-size:16px;'
-        + 'font-weight:500;'
-        + 'color:' + (item.danger ? 'var(--rouge)' : 'var(--text)') + ';';
-      btn.onmouseenter = () => btn.style.background = 'var(--surface)';
-      btn.onmouseleave = () => btn.style.background = 'none';
-      btn.onclick = () => {
-        document.body.removeChild(backdrop);
-        resolve(true);
-        item.action();
-      };
-      sheet.appendChild(btn);
-    });
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'Annuler';
-    cancelBtn.style.cssText =
-      'width:100%;text-align:left;padding:14px 16px;border:none;'
-      + 'background:none;color:var(--text-muted);font-size:16px;'
-      + 'cursor:pointer;border-radius:8px;border-top:1px solid var(--divider);'
-      + 'margin-top:4px;';
-    cancelBtn.onclick = () => {
-      document.body.removeChild(backdrop);
-      resolve(null);
-    };
-    sheet.appendChild(cancelBtn);
-
-    backdrop.appendChild(sheet);
-    document.body.appendChild(backdrop);
-    backdrop.onclick = (e) => {
-      if (e.target === backdrop) {
-        document.body.removeChild(backdrop);
-        resolve(null);
-      }
-    };
-  });
-}
-
-// ================================================================
-// Archivage / reset hebdomadaire
-// ================================================================
-function verifierSemaine() {
-  const lundi = lundiDeLaSemaine(new Date());
-  if (!state.semaine.debut || !memeJour(state.semaine.debut, lundi)) {
-    if (state.semaine.pointages && state.semaine.pointages.length > 0) {
-      state.historique.push({
-        debut: state.semaine.debut,
-        pointages: state.semaine.pointages,
-      });
-      while (state.historique.length > 52) state.historique.shift();
-    }
-    state.semaine = { debut: lundi.toISOString(), pointages: [] };
-    sauver();
-  }
-}
-
-// ================================================================
-// Rendus
-// ================================================================
-function renderOnboarding() {
-  const conso = document.getElementById('onb-conso');
-  const recette = document.getElementById('onb-recette');
-  const btn = document.getElementById('onb-btn');
-  const err = document.getElementById('onb-error');
-
-  conso.value = Math.round(state.parametres.consommationF100km).toString();
-  recette.value = Math.round(state.parametres.recetteHebdo).toString();
-
-  function update() {
-    const c = lire(conso.value);
-    const r = lire(recette.value);
-    const ok = c != null && r != null && c > 0 && r > 0;
-    btn.disabled = !ok;
-    err.hidden = ok;
-  }
-  conso.oninput = update;
-  recette.oninput = update;
-  update();
-
-  btn.onclick = () => {
-    const c = lire(conso.value);
-    const r = lire(recette.value);
-    if (c == null || r == null || c <= 0 || r <= 0) return;
-    state.parametres.consommationF100km = c;
-    state.parametres.recetteHebdo = r;
-    state.parametres.onboardingFait = true;
-    sauver();
-    renderMain();
-    goTo('main');
-  };
-}
-
-function renderMain() {
-  const p = state.parametres;
-  const s = state.semaine;
-  const b = calculerBilan(p, s);
-  const el = document.getElementById('main-content');
-
-  const heroCls = b.beneficeDernierPointage >= 0 ? 'amount-pos' : 'amount-neg';
-  const cumulCls = b.beneficeCumule >= 0 ? 'amount-pos' : 'amount-neg';
-
-  let html = '';
-
-  // Carte héros
-  if (!b.aPointages) {
-    html += `
-      <div class="card card-hero">
-        <div class="card-label">BÉNÉFICE NET EN CASH</div>
-        <div class="hero-amount" style="color: var(--grey)">—</div>
-        <div class="hero-sub">Faites votre premier pointage</div>
-      </div>`;
+  let dark;
+  if (state.params.modeSombreAuto) {
+    const h = new Date().getHours();
+    dark = h >= 18 || h < 6;
   } else {
-    html += `
-      <div class="card card-hero">
-        <div class="card-label">BÉNÉFICE NET EN CASH</div>
-        <div class="hero-amount ${heroCls}">${fmt(b.beneficeDernierPointage)}</div>
-        <div class="hero-sub">c'est ton argent</div>
-        <div class="hero-divider"></div>
-        <div class="hero-cumul">
-          <span class="lbl">Bénéfice cumulé de la semaine</span>
-          <span class="val ${cumulCls}">${fmt(b.beneficeCumule)}</span>
+    dark = state.params.modeSombre;
+  }
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+}
+
+// -------- Rendu --------
+function render() {
+  appliquerTheme();
+  const onboarding = document.getElementById('onboarding');
+  const app = document.getElementById('app');
+
+  if (!state.params.onboardingFait) {
+    onboarding.classList.remove('hidden');
+    app.classList.add('hidden');
+    return;
+  }
+  onboarding.classList.add('hidden');
+  app.classList.remove('hidden');
+
+  const b = calculerBilan(state.params, state.semaine);
+  renderHero(b);
+  renderDetails(b);
+  renderRecette(b);
+  renderPointagesList();
+}
+
+function renderHero(b) {
+  const el = document.getElementById('hero');
+  if (!b.aPointages) {
+    el.innerHTML = `
+      <div class="label">BÉNÉFICE NET EN CASH</div>
+      <div class="amount" style="color: var(--text-muted)">—</div>
+      <div class="subtitle">Faites votre premier pointage</div>`;
+    return;
+  }
+  const clsB = b.dernierBenefice >= 0 ? 'pos' : 'neg';
+  const clsC = b.beneficeCumule >= 0 ? 'pos' : 'neg';
+  el.innerHTML = `
+    <div class="label">BÉNÉFICE NET EN CASH</div>
+    <div class="amount ${clsB}">${fmt(b.dernierBenefice)}</div>
+    <div class="subtitle">c'est ton argent</div>
+    <div class="divider"></div>
+    <div class="cumul-row">
+      <span>Bénéfice cumulé de la semaine</span>
+      <span class="${clsC}" style="font-weight:600">${fmt(b.beneficeCumule)}</span>
+    </div>`;
+}
+
+function renderDetails(b) {
+  const el = document.getElementById('details');
+  const autoCls = b.autonomie !== null && b.autonomie < 0 ? 'neg' : '';
+  el.innerHTML = `
+    <div>DÉTAILS</div>
+    <div class="row"><span>Argent généré</span><span>${fmt(b.argent)}</span></div>
+    <div class="row"><span>Recette versée</span><span>${fmt(b.recette)}</span></div>
+    <div class="row"><span>Recharge Solde</span><span>${fmt(b.commission)}</span></div>
+    <div class="row"><span>Carburant Consommé (${fmtKm(b.km)})</span><span>${fmt(b.carburant)}</span></div>
+    <hr>
+    <div class="row gras ${autoCls}">
+      <span>Autonomie restante</span>
+      <span>${b.autonomie === null ? '—' : fmtKm(b.autonomie)}</span>
+    </div>`;
+}
+
+function renderRecette(b) {
+  const el = document.getElementById('recette');
+  const pct = fmtPct(b.avancement * 100);
+  const fillCls = b.recetteRestante <= 0 ? 'ok' : 'warn';
+  const content = b.recetteRestante <= 0
+    ? `<div class="badge-ok">✓ RECETTE COUVERTE — chaque franc généré est pour toi</div>`
+    : `<div class="recette-info">Versé : ${fmt(b.recette)} / ${fmt(state.params.recetteHebdo)}</div>
+       <div class="recette-info reste">Reste à verser : ${fmt(b.recetteRestante)}</div>`;
+  el.innerHTML = `
+    <div class="progress-header"><span>Recette hebdomadaire</span><span>${pct}</span></div>
+    <div class="progress-bar"><div class="progress-fill ${fillCls}" style="width:${(b.avancement * 100).toFixed(1)}%"></div></div>
+    ${content}`;
+}
+
+function renderPointagesList() {
+  const el = document.getElementById('pointages-list');
+  if (state.semaine.pointages.length === 0) { el.innerHTML = ''; return; }
+  const conso = state.params.consommationF100km;
+  const items = state.semaine.pointages.map((pt, i) => ({ pt, i })).reverse();
+  el.innerHTML = `
+    <div class="section-title">Pointages de la semaine</div>
+    ${items.map(({ pt, i }) => {
+      const benef = beneficePointage(pt, conso);
+      const cls = benef >= 0 ? 'pos' : 'neg';
+      return `<div class="pointage-row">
+        <div class="info">
+          <div class="top-line">
+            <span class="timestamp">${fmtTimestamp(pt.timestamp)}</span>
+            <span class="benefice ${cls}">${fmt(benef)}</span>
+          </div>
+          <div class="details-line">Argent ${fmt(pt.cash)} • Recette ${fmt(pt.recetteVersee)} • Yango ${fmt(pt.yango)} • Km ${fmtKm(pt.km)}</div>
+        </div>
+        <div class="row-actions">
+          <button data-edit="${i}" title="Modifier">✏️</button>
+          <button data-delete="${i}" title="Supprimer">🗑️</button>
         </div>
       </div>`;
-  }
+    }).join('')}`;
+  el.querySelectorAll('[data-edit]').forEach(btn =>
+    btn.addEventListener('click', () => ouvrirEdition(parseInt(btn.dataset.edit))));
+  el.querySelectorAll('[data-delete]').forEach(btn =>
+    btn.addEventListener('click', () => supprimerPointage(parseInt(btn.dataset.delete))));
+}
 
-  // Carte DÉTAILS
-  const autoCls = (b.autonomieKm != null && b.autonomieKm < 0) ? 'amount-neg' : '';
-  html += `
-    <div class="card">
-      <div class="card-label">DÉTAILS</div>
-      <div class="row">
-        <span class="row-label">Argent généré</span>
-        <span class="row-value">${fmt(b.argentGenereCumule)}</span>
-      </div>
-      <div class="row">
-        <span class="row-label">Recette versée</span>
-        <span class="row-value">${fmt(b.recetteCumulee)}</span>
-      </div>
-      <div class="row">
-        <span class="row-label">Recharge Solde</span>
-        <span class="row-value">${fmt(b.commissionCumulee)}</span>
-      </div>
-      <div class="row">
-        <span class="row-label">Carburant Consommé (${fmtKm(b.totalKm)})</span>
-        <span class="row-value">${fmt(b.carburantCumule)}</span>
-      </div>
-      <hr class="divider">
-      <div class="row">
-        <span class="row-label gras">Autonomie restante</span>
-        <span class="row-value gras ${autoCls}">${b.autonomieKm == null ? '—' : fmtKm(b.autonomieKm)}</span>
-      </div>
-    </div>`;
+// -------- Modale pointage --------
+function ouvrirNouveauPointage() {
+  state.editingIndex = null;
+  document.getElementById('modal-title').textContent = 'Nouveau pointage';
+  ['p-cash','p-km','p-carburant','p-yango','p-recette'].forEach(id => document.getElementById(id).value = '');
+  updateApercu();
+  document.getElementById('modal-pointage').classList.remove('hidden');
+}
 
-  // Carte recette
-  const pct = fmtPct(b.avancement * 100);
-  const fillCls = b.recetteCouverte ? 'ok' : 'warn';
-  html += `
-    <div class="card">
-      <div class="progress-header">
-        <span>Recette hebdomadaire</span>
-        <span>${pct}</span>
-      </div>
-      <div class="progress-wrap">
-        <div class="progress-fill ${fillCls}" style="width: ${(b.avancement * 100).toFixed(1)}%"></div>
-      </div>`;
+function ouvrirEdition(index) {
+  state.editingIndex = index;
+  const pt = state.semaine.pointages[index];
+  document.getElementById('modal-title').textContent = 'Modifier le pointage';
+  document.getElementById('p-cash').value = pt.cash;
+  document.getElementById('p-km').value = pt.km;
+  document.getElementById('p-carburant').value = pt.carburantMis;
+  document.getElementById('p-yango').value = pt.yango;
+  document.getElementById('p-recette').value = pt.recetteVersee;
+  updateApercu();
+  document.getElementById('modal-pointage').classList.remove('hidden');
+}
 
-  if (b.recetteCouverte) {
-    html += `
-      <div class="recette-status">
-        <span>✓</span>
-        <span>RECETTE COUVERTE ✓ — chaque franc généré est pour toi</span>
-      </div>`;
+function fermerPointage() { document.getElementById('modal-pointage').classList.add('hidden'); }
+
+function lireValeur(id) {
+  const v = parseFloat(document.getElementById(id).value);
+  return isNaN(v) || v < 0 ? 0 : v;
+}
+
+function updateApercu() {
+  const pt = {
+    cash: lireValeur('p-cash'),
+    km: lireValeur('p-km'),
+    carburantMis: lireValeur('p-carburant'),
+    yango: lireValeur('p-yango'),
+    recetteVersee: lireValeur('p-recette'),
+  };
+  const conso = state.params.consommationF100km;
+  let semaine;
+  if (state.editingIndex !== null) {
+    const copie = state.semaine.pointages.slice();
+    copie[state.editingIndex] = { ...pt, timestamp: state.semaine.pointages[state.editingIndex].timestamp };
+    semaine = { ...state.semaine, pointages: copie };
   } else {
-    html += `
-      <div style="font-size: 14px;">Versé : ${fmt(b.recetteCumulee)} / ${fmt(p.recetteHebdo)}</div>
-      <div style="font-size: 14px; color: var(--orange); font-weight: 600; margin-top: 2px;">
-        Reste à verser : ${fmt(b.recetteRestante)}
+    semaine = { ...state.semaine, pointages: [...state.semaine.pointages, { ...pt, timestamp: new Date().toISOString() }] };
+  }
+  const b = calculerBilan(state.params, semaine);
+  const benefPt = beneficePointage(pt, conso);
+  const clsB = benefPt >= 0 ? 'pos' : 'neg';
+  const clsC = b.beneficeCumule >= 0 ? 'pos' : 'neg';
+  const autoCls = b.autonomie !== null && b.autonomie < 0 ? 'neg' : '';
+  document.getElementById('apercu').innerHTML = `
+    <div class="row gras"><span>Bénéfice à l'instant</span><span class="${clsB}">${fmt(benefPt)}</span></div>
+    <div class="row"><span>Bénéfice cumulé de la semaine</span><span class="${clsC}">${fmt(b.beneficeCumule)}</span></div>
+    <div class="row"><span>Recette restante</span><span>${b.recetteRestante <= 0 ? 'COUVERTE ✓' : fmt(b.recetteRestante)}</span></div>
+    <div class="row ${autoCls}"><span>Autonomie restante</span><span>${b.autonomie === null ? '—' : fmtKm(b.autonomie)}</span></div>`;
+}
+
+function soumettrePointage(e) {
+  e.preventDefault();
+  const pt = {
+    cash: lireValeur('p-cash'),
+    km: lireValeur('p-km'),
+    carburantMis: lireValeur('p-carburant'),
+    yango: lireValeur('p-yango'),
+    recetteVersee: lireValeur('p-recette'),
+  };
+  if (state.editingIndex !== null) {
+    const ancien = state.semaine.pointages[state.editingIndex];
+    state.semaine.pointages[state.editingIndex] = { ...pt, timestamp: ancien.timestamp };
+  } else {
+    state.semaine.pointages.push({ ...pt, timestamp: new Date().toISOString() });
+  }
+  save();
+  fermerPointage();
+  render();
+}
+
+function supprimerPointage(index) {
+  if (!confirm('Supprimer ce pointage ?')) return;
+  state.semaine.pointages.splice(index, 1);
+  save();
+  render();
+}
+
+// -------- Paramètres --------
+function ouvrirSettings() {
+  document.getElementById('s-recette').value = state.params.recetteHebdo;
+  document.getElementById('s-conso').value = state.params.consommationF100km;
+  document.getElementById('s-dark-auto').checked = state.params.modeSombreAuto;
+  document.getElementById('s-dark').checked = state.params.modeSombre;
+  document.getElementById('manual-dark-row').style.display = state.params.modeSombreAuto ? 'none' : 'flex';
+  document.getElementById('modal-settings').classList.remove('hidden');
+}
+
+function fermerSettings() { document.getElementById('modal-settings').classList.add('hidden'); }
+
+function soumettreSettings(e) {
+  e.preventDefault();
+  const recette = parseFloat(document.getElementById('s-recette').value);
+  const conso = parseFloat(document.getElementById('s-conso').value);
+  if (isNaN(recette) || isNaN(conso) || recette < 0 || conso < 0) {
+    alert('Valeurs invalides');
+    return;
+  }
+  state.params.recetteHebdo = recette;
+  state.params.consommationF100km = conso;
+  state.params.modeSombreAuto = document.getElementById('s-dark-auto').checked;
+  state.params.modeSombre = document.getElementById('s-dark').checked;
+  save();
+  fermerSettings();
+  render();
+}
+
+// -------- Historique --------
+function ouvrirHistory() {
+  const el = document.getElementById('history-list');
+  if (state.historique.length === 0) {
+    el.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:24px">Aucune semaine archivée pour le moment.</p>';
+  } else {
+    el.innerHTML = state.historique.map(s => {
+      const b = calculerBilan(state.params, s);
+      const cls = b.beneficeCumule >= 0 ? 'pos' : 'neg';
+      const debut = parseIsoDay(s.debut);
+      const fin = new Date(debut); fin.setDate(fin.getDate() + 6);
+      return `<div class="history-item">
+        <div class="title">Semaine du ${debut.getDate()}/${debut.getMonth() + 1} au ${fin.getDate()}/${fin.getMonth() + 1}</div>
+        <div class="row"><span>Argent généré</span><span>${fmt(b.argent)}</span></div>
+        <div class="row"><span>Recette versée</span><span>${fmt(b.recette)}</span></div>
+        <div class="row gras"><span>Bénéfice cumulé</span><span class="${cls}">${fmt(b.beneficeCumule)}</span></div>
       </div>`;
+    }).join('');
   }
-  html += `</div>`;
+  document.getElementById('modal-history').classList.remove('hidden');
+}
 
-  // Boutons
-  html += `<button id="btn-nouveau" class="btn-primary">+ Nouveau pointage</button>`;
-  html += `<button id="btn-nouvelle-semaine" class="btn-outline">↻ Nouvelle semaine</button>`;
+function fermerHistory() { document.getElementById('modal-history').classList.add('hidden'); }
 
-  // Liste des pointages
-  if (s.pointages.length > 0) {
-    html += `<h2 style="font-size: 16px; margin: 20px 0 4px;">Pointages de la semaine</h2>`;
-    html += `<div class="pointage-list">`;
-    const reversed = s.pointages.map((pt, i) => ({ pt, i })).reverse();
-    for (const { pt, i } of reversed) {
-      const ts = new Date(pt.timestamp);
-      const benefice = pt.cash - pt.recetteVersee
-        - (pt.km * p.consommationF100km / 100) - pt.yango;
-      const cls = benefice >= 0 ? 'amount-pos' : 'amount-neg';
-      html += `
-        <div class="pointage-item">
-          <div class="pointage-main">
-            <div class="pointage-head">
-              <span class="pointage-date">${fmtDate(ts)}  ${fmtHeure(ts)}</span>
-              <span class="pointage-benefice ${cls}">${fmt(benefice)}</span>
-            </div>
-            <div class="pointage-detail">Argent ${fmt(pt.cash)} • Recette ${fmt(pt.recetteVersee)} • Yango ${fmt(pt.yango)} • Km ${fmtKm(pt.km)}</div>
-          </div>
-          <button class="pointage-menu" data-index="${i}" aria-label="Actions">⋮</button>
-        </div>`;
-    }
-    html += `</div>`;
+// -------- Nouvelle semaine --------
+function nouvelleSemaine() {
+  if (!confirm('Archiver la semaine actuelle et démarrer une nouvelle semaine ?')) return;
+  if (state.semaine.pointages.length > 0) {
+    state.historique.unshift(state.semaine);
+    if (state.historique.length > 52) state.historique = state.historique.slice(0, 52);
   }
+  state.semaine = { debut: isoDay(lundiDeLaSemaine(new Date())), pointages: [] };
+  save();
+  render();
+}
 
-  el.innerHTML = html;
+// -------- Onboarding --------
+function finaliserOnboarding() {
+  const conso = parseFloat(document.getElementById('ob-conso').value);
+  const recette = parseFloat(document.getElementById('ob-recette').value);
+  if (isNaN(conso) || isNaN(recette) || conso <= 0 || recette <= 0) {
+    alert('Renseignez les deux valeurs (nombres positifs).');
+    return;
+  }
+  state.params.consommationF100km = conso;
+  state.params.recetteHebdo = recette;
+  state.params.onboardingFait = true;
+  state.semaine = { debut: isoDay(lundiDeLaSemaine(new Date())), pointages: [] };
+  save();
+  render();
+}
 
-  // Wiring
-  document.getElementById('btn-nouveau').onclick = () => {
-    editingIndex = null;
-    renderPointage();
-    goTo('pointage');
-  };
+// -------- Initialisation --------
+function init() {
+  load();
+  ensureCurrentWeek();
+  save();
 
-  document.getElementById('btn-nouvelle-semaine').onclick = async () => {
-    const ok = await showModal(
-      'Nouvelle semaine ?',
-      'La semaine en cours sera archivée et un nouveau cycle démarre. Les paramètres sont conservés.',
-      'Démarrer', false
-    );
-    if (!ok) return;
-    if (state.semaine.pointages.length > 0) {
-      state.historique.push({
-        debut: state.semaine.debut,
-        pointages: state.semaine.pointages,
-      });
-      while (state.historique.length > 52) state.historique.shift();
-    }
-    state.semaine = { debut: lundiDeLaSemaine(new Date()).toISOString(), pointages: [] };
-    sauver();
-    renderMain();
-  };
+  document.getElementById('ob-start').addEventListener('click', finaliserOnboarding);
+  document.getElementById('btn-new-pointage').addEventListener('click', ouvrirNouveauPointage);
+  document.getElementById('btn-cancel-pointage').addEventListener('click', fermerPointage);
+  document.getElementById('form-pointage').addEventListener('submit', soumettrePointage);
+  ['p-cash','p-km','p-carburant','p-yango','p-recette'].forEach(id =>
+    document.getElementById(id).addEventListener('input', updateApercu));
 
-  el.querySelectorAll('.pointage-menu').forEach(btn => {
-    btn.onclick = async () => {
-      const idx = parseInt(btn.dataset.index, 10);
-      const pt = state.semaine.pointages[idx];
-      const ts = new Date(pt.timestamp);
-      await showActionSheet([
-        {
-          label: 'Modifier',
-          action: () => {
-            editingIndex = idx;
-            renderPointage();
-            goTo('pointage');
-          },
-        },
-        {
-          label: 'Supprimer',
-          danger: true,
-          action: async () => {
-            const ok = await showModal(
-              'Supprimer ce pointage ?',
-              `Le pointage du ${fmtDate(ts)} à ${fmtHeure(ts)} (argent généré ${fmt(pt.cash)}) sera retiré.`,
-              'Supprimer', true
-            );
-            if (!ok) return;
-            state.semaine.pointages.splice(idx, 1);
-            sauver();
-            renderMain();
-          },
-        },
-      ]);
-    };
+  document.getElementById('btn-settings').addEventListener('click', ouvrirSettings);
+  document.getElementById('btn-cancel-settings').addEventListener('click', fermerSettings);
+  document.getElementById('form-settings').addEventListener('submit', soumettreSettings);
+  document.getElementById('s-dark-auto').addEventListener('change', e => {
+    document.getElementById('manual-dark-row').style.display = e.target.checked ? 'none' : 'flex';
   });
+
+  document.getElementById('btn-history').addEventListener('click', ouvrirHistory);
+  document.getElementById('btn-close-history').addEventListener('click', fermerHistory);
+  document.getElementById('btn-new-semaine').addEventListener('click', nouvelleSemaine);
+
+  // Fermer les modales en cliquant sur le fond
+  document.querySelectorAll('.modal').forEach(m => {
+    m.addEventListener('click', e => { if (e.target === m) m.classList.add('hidden'); });
+  });
+
+  // Rafraîchir le thème auto toutes les minutes
+  setInterval(() => { if (state.params.modeSombreAuto) appliquerTheme(); }, 60000);
+
+  render();
 }
 
-function renderPointage() {
-  const p = state.parametres;
-  const editing = editingIndex != null;
-  const existing = editing ? state.semaine.pointages[editingIndex] : null;
-  const el = document.getElementById('pointage-content');
-
-  document.getElementById('pointage-title').textContent =
-    editing ? 'Modifier le pointage' : 'Nouveau pointage';
-
-  el.innerHTML = `
-    <div class="field">
-      <label for="pt-cash">Argent généré (Fcfa)</label>
-      <input id="pt-cash" type="text" inputmode="decimal" value="${existing ? numVersTexte(existing.cash) : ''}">
-      <small>Ce que tu as comme montant total sur toi actuellement</small>
-    </div>
-    <div class="field">
-      <label for="pt-km">Distance parcouru (km)</label>
-      <input id="pt-km" type="text" inputmode="decimal" value="${existing ? numVersTexte(existing.km) : ''}">
-      <small>Le total de kilometre que tu as roulé jusqu'a maintenant</small>
-    </div>
-    <div class="field">
-      <label for="pt-carburantMis">Carburant mis (Fcfa)</label>
-      <input id="pt-carburantMis" type="text" inputmode="decimal" value="${existing ? numVersTexte(existing.carburantMis) : ''}">
-      <small>Carburant consommé a la station en debut</small>
-    </div>
-    <div class="field">
-      <label for="pt-yango">Recharge solde yango (Fcfa)</label>
-      <input id="pt-yango" type="text" inputmode="decimal" value="${existing ? numVersTexte(existing.yango) : ''}">
-    </div>
-    <div class="field">
-      <label for="pt-recette">Recette a versée (Fcfa)</label>
-      <input id="pt-recette" type="text" inputmode="decimal" value="${existing ? numVersTexte(existing.recetteVersee) : ''}">
-      <small>Recette que tu vas versé dans l'argent que tu as</small>
-    </div>
-    <div id="pt-preview"></div>
-    <button id="pt-save" class="btn-primary" style="margin-top: 20px;" disabled>
-      ${editing ? 'Enregistrer les modifications' : 'Enregistrer le pointage'}
-    </button>
-    <p id="pt-error" class="error" hidden>Vérifie les valeurs : certaines sont invalides.</p>
-  `;
-
-  const cash = document.getElementById('pt-cash');
-  const km = document.getElementById('pt-km');
-  const carburantMis = document.getElementById('pt-carburantMis');
-  const yango = document.getElementById('pt-yango');
-  const recette = document.getElementById('pt-recette');
-  const saveBtn = document.getElementById('pt-save');
-  const errEl = document.getElementById('pt-error');
-  const previewEl = document.getElementById('pt-preview');
-
-  function buildPointage() {
-    const c = lire(cash.value);
-    const k = lire(km.value);
-    const cm = lire(carburantMis.value);
-    const y = lire(yango.value);
-    const r = lire(recette.value);
-    if (c == null || k == null || cm == null || y == null || r == null) return null;
-    return {
-      timestamp: existing ? existing.timestamp : new Date().toISOString(),
-      cash: c,
-      km: k,
-      carburantMis: cm,
-      yango: y,
-      recetteVersee: r,
-    };
-  }
-
-  function update() {
-    const pt = buildPointage();
-    if (pt == null) {
-      saveBtn.disabled = true;
-      errEl.hidden = false;
-      previewEl.innerHTML = '';
-      return;
-    }
-    saveBtn.disabled = false;
-    errEl.hidden = true;
-
-    let semaine;
-    if (editing) {
-      const copy = [...state.semaine.pointages];
-      copy[editingIndex] = pt;
-      semaine = { debut: state.semaine.debut, pointages: copy };
-    } else {
-      semaine = { debut: state.semaine.debut, pointages: [...state.semaine.pointages, pt] };
-    }
-    const b = calculerBilan(p, semaine);
-    const beneficePointage = pt.cash - pt.recetteVersee
-      - (pt.km * p.consommationF100km / 100) - pt.yango;
-    const clsBen = beneficePointage >= 0 ? 'amount-pos' : 'amount-neg';
-    const clsCumul = b.beneficeCumule >= 0 ? 'amount-pos' : 'amount-neg';
-    const clsRec = b.recetteCouverte ? 'amount-pos' : 'amount-warn';
-    const clsAuto = (b.autonomieKm != null && b.autonomieKm < 0) ? 'amount-neg' : '';
-
-    previewEl.innerHTML = `
-      <hr class="divider" style="margin: 12px 0;">
-      <div style="font-weight: 700; margin-bottom: 8px;">
-        ${editing ? 'Aperçu après modification' : 'Aperçu après enregistrement'}
-      </div>
-      <div class="row">
-        <span class="row-label">Bénéfice a l'instant</span>
-        <span class="row-value ${clsBen}">${fmt(beneficePointage)}</span>
-      </div>
-      <div class="row">
-        <span class="row-label">Bénéfice cumulé de la semaine</span>
-        <span class="row-value ${clsCumul}">${fmt(b.beneficeCumule)}</span>
-      </div>
-      <div class="row">
-        <span class="row-label">Recette restante</span>
-        <span class="row-value ${clsRec}">${b.recetteCouverte ? 'COUVERTE ✓' : fmt(b.recetteRestante)}</span>
-      </div>
-      <div class="row">
-        <span class="row-label">Autonomie restante</span>
-        <span class="row-value ${clsAuto}">${b.autonomieKm == null ? '—' : fmtKm(b.autonomieKm)}</span>
-      </div>
-    `;
-  }
-
-  cash.oninput = update;
-  km.oninput = update;
-  carburantMis.oninput = update;
-  yango.oninput = update;
-  recette.oninput = update;
-  update();
-
-  saveBtn.onclick = () => {
-    const pt = buildPointage();
-    if (pt == null) return;
-    if (editing) {
-      state.semaine.pointages[editingIndex] = pt;
-    } else {
-      state.semaine.pointages.push(pt);
-    }
-    sauver();
-    renderMain();
-    goTo('main');
-  };
-}
-
-function renderParams() {
-  const p = state.parametres;
-  const el = document.getElementById('params-content');
-
-  el.innerHTML = `
-    <div class="field">
-      <label for="par-recette">Recette hebdomadaire (Fcfa)</label>
-      <input id="par-recette" type="text" inputmode="decimal" value="${Math.round(p.recetteHebdo)}">
-      <small>Montant fixe à verser au propriétaire chaque semaine</small>
-    </div>
-    <div class="field">
-      <label for="par-conso">Consommation du véhicule (Fcfa pour 100 km)</label>
-      <input id="par-conso" type="text" inputmode="decimal" value="${Math.round(p.consommationF100km)}">
-      <small>Coût du carburant pour 100 km (ex. 6 500)</small>
-    </div>
-    <hr class="divider" style="margin: 16px 0;">
-    <div class="switch-row">
-      <div class="info">
-        <div class="title">Mode sombre automatique</div>
-        <div class="sub">Activé de 18h00 à 6h00</div>
-      </div>
-      <div id="sw-auto" class="switch ${p.modeSombreAuto ? 'on' : ''}"></div>
-    </div>
-    <div class="switch-row" id="sw-manual-row" ${p.modeSombreAuto ? 'style="display:none"' : ''}>
-      <div class="info">
-        <div class="title">Mode sombre</div>
-        <div class="sub">Bascule manuelle</div>
-      </div>
-      <div id="sw-manual" class="switch ${p.modeSombre ? 'on' : ''}"></div>
-    </div>
-    <button id="par-save" class="btn-primary" style="margin-top: 20px;">Enregistrer</button>
-    <p
+document.addEventListener('DOMContentLoaded', init);
