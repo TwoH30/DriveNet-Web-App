@@ -2,92 +2,121 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <meta name="theme-color" content="#1A7F37">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="DriveNet">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>DriveNet</title>
+  <title>DriveNet - Revenu VTC</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Écran expiré -->
-  <section class="screen" data-screen="expire" hidden>
-    <div class="center-content">
-      <div class="icon-big">⏳</div>
-      <h2>Période de bêta-test terminée</h2>
-      <p>Cette version d'essai n'est plus utilisable. Contactez le développeur pour une version à jour.</p>
-    </div>
-  </section>
-
   <!-- Onboarding -->
-  <section class="screen" data-screen="onboarding" hidden>
+  <div id="onboarding" class="screen hidden">
     <div class="onboarding-content">
-      <div class="icon-big green">🚖</div>
-      <h2>Bienvenue sur DriveNet</h2>
+      <div class="onboarding-icon">🚕</div>
+      <h1>Bienvenue sur DriveNet</h1>
       <p>Avant de commencer, renseignez deux informations qui serviront à calculer votre bénéfice. Vous pourrez les modifier à tout moment dans les paramètres.</p>
-      <div class="field">
-        <label for="onb-conso">Consommation du véhicule (Fcfa pour 100 km)</label>
-        <input id="onb-conso" type="text" inputmode="decimal">
+      <label>Consommation du véhicule (Fcfa pour 100 km)
+        <input type="number" id="ob-conso" value="6500" inputmode="decimal">
         <small>Coût du carburant pour 100 km (ex. 6 500)</small>
-      </div>
-      <div class="field">
-        <label for="onb-recette">Recette hebdomadaire à verser (Fcfa)</label>
-        <input id="onb-recette" type="text" inputmode="decimal">
+      </label>
+      <label>Recette hebdomadaire à verser (Fcfa)
+        <input type="number" id="ob-recette" value="60000" inputmode="decimal">
         <small>Montant fixe à verser au propriétaire chaque semaine</small>
-      </div>
-      <button id="onb-btn" class="btn-primary" disabled>Commencer</button>
-      <p id="onb-error" class="error" hidden>Renseignez les deux valeurs (nombres positifs).</p>
+      </label>
+      <button id="ob-start" class="btn-primary">Commencer</button>
     </div>
-  </section>
+  </div>
 
-  <!-- Écran principal -->
-  <section class="screen" data-screen="main" hidden>
-    <header class="appbar">
+  <!-- Application principale -->
+  <div id="app" class="screen hidden">
+    <header>
       <h1>DriveNet</h1>
-      <div class="appbar-actions">
-        <button id="btn-histo" class="icon-btn" title="Historique" aria-label="Historique">📋</button>
-        <button id="btn-params" class="icon-btn" title="Paramètres" aria-label="Paramètres">⚙️</button>
+      <div class="header-actions">
+        <button id="btn-history" class="icon-btn" title="Historique">📜</button>
+        <button id="btn-settings" class="icon-btn" title="Paramètres">⚙️</button>
       </div>
     </header>
-    <main id="main-content" class="content"></main>
-  </section>
+    <main>
+      <section class="card hero" id="hero"></section>
+      <section class="card details" id="details"></section>
+      <section class="card recette" id="recette"></section>
+      <button id="btn-new-pointage" class="btn-primary">+ Nouveau pointage</button>
+      <button id="btn-new-semaine" class="btn-secondary">Nouvelle semaine</button>
+      <section id="pointages-list"></section>
+    </main>
+  </div>
 
-  <!-- Écran pointage -->
-  <section class="screen" data-screen="pointage" hidden>
-    <header class="appbar">
-      <button class="icon-btn" id="btn-back-pointage" aria-label="Retour">←</button>
-      <h1 id="pointage-title">Nouveau pointage</h1>
-    </header>
-    <main id="pointage-content" class="content"></main>
-  </section>
+  <!-- Modal pointage -->
+  <div id="modal-pointage" class="modal hidden">
+    <div class="modal-content">
+      <h2 id="modal-title">Nouveau pointage</h2>
+      <form id="form-pointage">
+        <label>Argent généré (Fcfa)
+          <input type="number" id="p-cash" inputmode="decimal" step="any" required>
+          <small>Ce que tu as comme montant total sur toi actuellement</small>
+        </label>
+        <label>Distance parcourue (km)
+          <input type="number" id="p-km" inputmode="decimal" step="any" required>
+          <small>Le total de kilomètres que tu as roulés jusqu'à maintenant</small>
+        </label>
+        <label>Carburant mis (Fcfa)
+          <input type="number" id="p-carburant" inputmode="decimal" step="any" required>
+          <small>Carburant ajouté à la station</small>
+        </label>
+        <label>Recharge solde Yango (Fcfa)
+          <input type="number" id="p-yango" inputmode="decimal" step="any" required>
+        </label>
+        <label>Recette à verser (Fcfa)
+          <input type="number" id="p-recette" inputmode="decimal" step="any" required>
+          <small>Recette que tu vas verser sur l'argent que tu as</small>
+        </label>
+        <div id="apercu" class="apercu"></div>
+        <div class="modal-actions">
+          <button type="button" id="btn-cancel-pointage" class="btn-secondary">Annuler</button>
+          <button type="submit" class="btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
-  <!-- Écran paramètres -->
-  <section class="screen" data-screen="parametres" hidden>
-    <header class="appbar">
-      <button class="icon-btn" id="btn-back-params" aria-label="Retour">←</button>
-      <h1>Paramètres</h1>
-    </header>
-    <main id="params-content" class="content"></main>
-  </section>
+  <!-- Modal paramètres -->
+  <div id="modal-settings" class="modal hidden">
+    <div class="modal-content">
+      <h2>Paramètres</h2>
+      <form id="form-settings">
+        <label>Recette hebdomadaire (Fcfa)
+          <input type="number" id="s-recette" inputmode="decimal" step="any" required>
+          <small>Montant fixe à verser au propriétaire chaque semaine</small>
+        </label>
+        <label>Consommation du véhicule (Fcfa pour 100 km)
+          <input type="number" id="s-conso" inputmode="decimal" step="any" required>
+          <small>Coût du carburant pour 100 km (ex. 6 500)</small>
+        </label>
+        <div class="switch-row">
+          <span>Mode sombre automatique (18h - 6h)</span>
+          <input type="checkbox" id="s-dark-auto">
+        </div>
+        <div class="switch-row" id="manual-dark-row">
+          <span>Mode sombre manuel</span>
+          <input type="checkbox" id="s-dark">
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="btn-cancel-settings" class="btn-secondary">Annuler</button>
+          <button type="submit" class="btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
-  <!-- Écran historique -->
-  <section class="screen" data-screen="historique" hidden>
-    <header class="appbar">
-      <button class="icon-btn" id="btn-back-histo" aria-label="Retour">←</button>
-      <h1>Historique</h1>
-    </header>
-    <main id="histo-content" class="content"></main>
-  </section>
-
-  <!-- Modal de confirmation -->
-  <div id="modal" class="modal-backdrop" hidden>
-    <div class="modal">
-      <h3 id="modal-title"></h3>
-      <p id="modal-body"></p>
+  <!-- Modal historique -->
+  <div id="modal-history" class="modal hidden">
+    <div class="modal-content">
+      <h2>Historique</h2>
+      <div id="history-list"></div>
       <div class="modal-actions">
-        <button id="modal-cancel" class="btn-text">Annuler</button>
-        <button id="modal-confirm" class="btn-primary">Confirmer</button>
+        <button type="button" id="btn-close-history" class="btn-primary">Fermer</button>
       </div>
     </div>
   </div>
